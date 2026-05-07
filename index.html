@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>AR Internal World</title>
+
+  <!-- Debug console — carga sin defer para capturar errores tempranos -->
+  <script src="./js/debug-console.js"></script>
+
+  <!--
+    A-Frame y MindAR se cargan de forma BLOQUEANTE (sin defer).
+    Esto garantiza que AFRAME esté definido antes de que se ejecuten
+    los scripts de componentes, evitando el error "Can't find variable: AFRAME"
+    en Safari iOS cuando los scripts CDN cross-origin no respetan el orden de defer.
+  -->
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
+  <!-- Componentes A-Frame — cargan después de que AFRAME ya está definido -->
+  <script defer src="./js/components/chamber.js"></script>
+  <script defer src="./js/components/jitter-smoother.js"></script>
+  <script defer src="./js/components/tracking-fade.js"></script>
+
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+
+  <!-- ─── DOM Overlays ───────────────────────────────────────────── -->
+  <div id="overlays">
+    <div id="overlay-loading" class="overlay">
+      <div class="overlay__content">
+        <div class="spinner"></div>
+        <p>Loading…</p>
+      </div>
+    </div>
+
+    <div id="overlay-permission-denied" class="overlay overlay--hidden">
+      <div class="overlay__content">
+        <h2>Camera access required</h2>
+        <p>This experience needs your camera to detect the marker.<br>Please allow camera access and retry.</p>
+        <button id="btn-retry" class="btn">Retry</button>
+      </div>
+    </div>
+
+    <div id="overlay-browser-incompatible" class="overlay overlay--hidden">
+      <div class="overlay__content">
+        <h2>Unsupported browser</h2>
+        <p>Open this page in Safari (iOS) or Chrome (Android) on your phone.</p>
+      </div>
+    </div>
+
+    <div id="overlay-asset-error" class="overlay overlay--hidden">
+      <div class="overlay__content">
+        <h2>Couldn't load assets</h2>
+        <p>One or more required files failed to load.<br>Please check your connection and reload.</p>
+        <button id="btn-reload" class="btn">Reload</button>
+      </div>
+    </div>
+
+    <div id="hint-aim" class="hint hint--hidden">
+      <p>Apunta la cámara al marcador</p>
+    </div>
+  </div>
+
+  <!-- ─── A-Frame Scene ──────────────────────────────────────────── -->
+  <!--
+    mindar-image: disable built-in UI so we own the overlay flow (research.md R8).
+    renderer: colorManagement + physicallyCorrectLights for proper PBR shading.
+    vr-mode-ui / device-orientation-permission-ui: disabled (WebAR-only app).
+  -->
+  <a-scene
+    mindar-image="imageTargetSrc: ./assets/targets/marker.mind;
+                  uiLoading: no;
+                  uiError: no;
+                  uiScanning: no;
+                  autoStart: true"
+    color-space="sRGB"
+    renderer="colorManagement: true; antialias: true; alpha: true; precision: high"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false"
+  >
+    <a-assets>
+      <!-- Head model is loaded inline via <a-gltf-model> so we can listen for model-loaded -->
+    </a-assets>
+
+    <!-- Camera — look-controls disabled; MindAR drives the viewpoint -->
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+    <!--
+      Image target: children inherit marker pose automatically.
+      Hierarchy: #target > #jitter-wrap (smoother) > #fade-wrap (tracking-fade) > #world (chamber + head + lights)
+    -->
+    <a-entity id="target" mindar-image-target="targetIndex: 0">
+
+      <!-- Jitter-smoother wrapper: absorbs per-frame tracking jitter (research.md R6) -->
+      <a-entity id="jitter-wrap" jitter-smoother>
+
+        <!-- Tracking-fade wrapper: fade-in/fade-out + grace timer (research.md R7) -->
+        <a-entity id="fade-wrap" tracking-fade visible="false">
+
+          <!-- World group: chamber, head model, lights — all in marker-local space -->
+          <a-entity id="world">
+
+            <!--
+              Chamber: six inward-facing colored surfaces (research.md R2, R3).
+              Extends into −Z; front opening at z=0 flush with marker plane.
+            -->
+            <a-entity
+              id="chamber"
+              chamber="width: 1.0; height: 1.0; depth: 1.0; frontOpeningRimWidth: 0.04"
+              position="0 0 0"
+            ></a-entity>
+
+            <!--
+              Head GLB: centered at chamber midpoint (0, 0, −depth/2 = −0.5).
+              Rotation 180° around Y so face points toward front opening / viewer.
+              Scale 0.4 → head occupies central third of chamber volume.
+            -->
+            <a-gltf-model
+              id="head"
+              src="./assets/models/human_head.glb"
+              position="0 0 -0.5"
+              rotation="0 180 0"
+              scale="0.4 0.4 0.4"
+            ></a-gltf-model>
+
+            <!-- Ambient light: fills chamber uniformly (research.md R5, FR-015) -->
+            <a-light id="ambient" type="ambient" color="#ffffff" intensity="0.45"></a-light>
+
+            <!--
+              Directional light: shapes the head from front-upper-right.
+              target="#head" tells three.js to aim at the head entity.
+            -->
+            <a-light
+              id="directional"
+              type="directional"
+              position="0.5 0.8 0.2"
+              intensity="0.9"
+              target="#head"
+            ></a-light>
+
+            <!--
+              Rim accent: point light behind the head, near back wall.
+              Disabled by app.js if navigator.hardwareConcurrency <= 4 (research.md R5).
+            -->
+            <a-light
+              id="rim"
+              type="point"
+              position="0 0.3 -0.9"
+              intensity="0.4"
+              color="#a060ff"
+            ></a-light>
+
+          </a-entity><!-- /#world -->
+
+        </a-entity><!-- /#fade-wrap -->
+
+      </a-entity><!-- /#jitter-wrap -->
+
+    </a-entity><!-- /#target -->
+
+  </a-scene>
+
+  <!-- Bootstrap: must load after all components are registered -->
+  <script defer src="./js/app.js"></script>
+
+</body>
+</html>
