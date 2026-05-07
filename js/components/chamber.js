@@ -125,16 +125,20 @@ AFRAME.registerComponent('chamber', {
     );
 
     // ── Floor (−Y) — yellow ────────────────────────────────────────
-    // Positioned at y = −hh, rotated −90° around X → faces +Y (inward, upward).
+    // Rotation [90, 0, 0] → normal points −Y (downward).
+    // BackSide visible from +Y (above floor, where the camera always is). ✓
+    // Using −90° would give normal +Y → BackSide visible from −Y (below floor) → invisible.
     this.el.appendChild(
-      makePlane(width, depth, [0, -hh, midZ], [-90, 0, 0], colorFloor)
+      makePlane(width, depth, [0, -hh, midZ], [90, 0, 0], colorFloor)
     );
 
     // ── Back wall (+Z far, at z = −depth) — purple ────────────────
-    // A-Frame <a-plane> default normal faces +Z; BackSide renders the −Z face.
-    // So we simply position it at z = −depth facing the camera (no Y rotation needed).
+    // BackSide renders the face OPPOSITE to the normal direction.
+    // Default normal is +Z; with BackSide, the viewer must be on the −Z side to see it.
+    // But our viewer is at z=0 (+Z relative to back wall at z=−depth), so we must flip
+    // the normal to −Z with Y=180° rotation → BackSide now faces toward +Z = viewer. ✓
     this.el.appendChild(
-      makePlane(width, height, [0, 0, -depth], [0, 0, 0], colorBack)
+      makePlane(width, height, [0, 0, -depth], [0, 180, 0], colorBack)
     );
 
     // ── Front opening rim — orange ────────────────────────────────

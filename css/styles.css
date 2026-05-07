@@ -8,12 +8,20 @@
   padding: 0;
 }
 
-html,
+html {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000; /* document canvas — visible through transparent body */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #000;
+  background: transparent; /* MindAR video uses z-index:-2; body background covers it */
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-text-size-adjust: 100%;
 }
@@ -143,4 +151,22 @@ body {
   border-radius: 999px;
   white-space: nowrap;
   letter-spacing: 0.01em;
+}
+
+/* ─── Version badge ─────────────────────────────────────────── */
+
+#version-badge {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
+  left: 12px;
+  z-index: 9997;
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.6);
+  font: 10px/1 monospace;
+  padding: 4px 7px;
+  border-radius: 4px;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  letter-spacing: 0.04em;
 }

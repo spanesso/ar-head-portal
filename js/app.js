@@ -9,23 +9,26 @@
  * SessionState; tracking-fade is the sole owner of targetFound/targetLost.
  */
 
+const APP_VERSION = 'v0.5';
+
 /* ─── Tunables (adjust without code surgery) ─────────────────────────── */
 
 const FADE_DURATION_MS = 350;  // world fade-in / fade-out duration
 const GRACE_WINDOW_MS  = 120;  // tracking-loss grace window before fade-out
-const JITTER_ALPHA     = 0.3;  // low-pass filter strength for jitter smoother
-const CHAMBER_SIZE     = { width: 1.0, height: 1.0, depth: 1.0 };
+const CHAMBER_SIZE     = { width: 1.0, height: 1.42, depth: 1.0 };  // height = 1492/1054 (marker aspect ratio)
 const HEAD_SCALE       = 0.4;  // uniform scale applied to the GLB head model
 
 /* ─── Expose tunables for components ─────────────────────────────────── */
 
 window.__arWorld = {
+  version: APP_VERSION,
   FADE_DURATION_MS,
   GRACE_WINDOW_MS,
-  JITTER_ALPHA,
   CHAMBER_SIZE,
   HEAD_SCALE,
 };
+
+console.log('[app]', APP_VERSION);
 
 /* ─── SessionState enum ───────────────────────────────────────────────── */
 
@@ -172,7 +175,7 @@ function checkAllAssetsReady() {
 // all MindAR versions or when marker.mind fails to fetch.
 
 function onSceneLoaded() {
-  // Only transition if we're still stuck in INITIALIZING
+  console.log('[app] scene loaded, state:', _sessionState);
   if (_sessionState === SessionState.INITIALIZING) {
     setSessionState(SessionState.AWAITING_MARKER);
   }
@@ -182,6 +185,7 @@ function onSceneLoaded() {
 // These supplement onSceneLoaded but are not load-bearing for the loading screen.
 
 function onArReady() {
+  console.log('[app] arReady fired');
   if (_sessionState === SessionState.INITIALIZING) {
     setSessionState(SessionState.AWAITING_MARKER);
   }
@@ -190,6 +194,7 @@ function onArReady() {
 function onArError(e) {
   const detail = e.detail || {};
   const msg = (detail.message || detail.error || String(detail)).toLowerCase();
+  console.error('[app] arError fired:', msg);
 
   if (
     msg.includes('notallowed') ||
