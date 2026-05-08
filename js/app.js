@@ -1,22 +1,24 @@
 /**
  * app.js — AR Internal World bootstrap and session orchestration.
  *
- * Owns: SessionState machine, asset-loading coordinator, overlay manager,
- * MindAR system event wiring, and the initial targetFound/targetLost bridge
- * (replaced by tracking-fade component after US1).
+ * v2.0 (8th Wall edition): reemplaza MindAR + IMU fusion del v1.x por el
+ * XR Engine de 8th Wall (open source desde 2026). Owns: SessionState machine,
+ * asset coordinator, overlay manager, ciclo de vida de XR8 (xrloaded → configure →
+ * realityready → marker tracking → world-revealed → RUNNING).
  *
- * Per contracts/runtime-events-contract.md — app.js is the sole owner of
- * SessionState; tracking-fade is the sole owner of targetFound/targetLost.
+ * tracking-fade es el ÚNICO suscriptor de xrimagefound/xrimagelost (eventos de
+ * 8th Wall que reemplazaron a targetFound/targetLost de MindAR). app.js es el
+ * único dueño de SessionState.
  */
 
-const APP_VERSION = 'v0.5';
+const APP_VERSION = 'v2.0-8thwall';
 
 /* ─── Tunables (adjust without code surgery) ─────────────────────────── */
 
 const FADE_DURATION_MS = 350;  // world fade-in / fade-out duration
 const GRACE_WINDOW_MS  = 120;  // tracking-loss grace window before fade-out
-const CHAMBER_SIZE     = { width: 1.0, height: 1.42, depth: 1.0 };  // height = 1492/1054 (marker aspect ratio)
-const HEAD_SCALE       = 0.4;  // uniform scale applied to the GLB head model
+const CHAMBER_SIZE     = { width: 1.0, height: 1.42, depth: 1.0 };  // height = 1492/1054 (marker portrait aspect ratio)
+const HEAD_SCALE       = 0.35; // uniform scale applied to the GLB head model (reducido en v1.3)
 
 /* ─── Expose tunables for components ─────────────────────────────────── */
 
@@ -169,10 +171,11 @@ function checkAllAssetsReady() {
 }
 
 /* ─── Scene loaded handler ────────────────────────────────────────────── */
-// A-Frame's 'loaded' event is the reliable signal that the scene and all
-// components are initialized. We use this — not MindAR's 'arReady' — to
-// hide the loading screen, because 'arReady' is not guaranteed to fire in
-// all MindAR versions or when marker.mind fails to fetch.
+// A-Frame's 'loaded' event es la señal fiable de que la escena y todos los
+// componentes están inicializados. La usamos como trigger primario para salir
+// de INITIALIZING, en vez de depender solo de eventos del runtime de tracking
+// (heredado de v1.x donde MindAR's 'arReady' a veces no disparaba — patrón
+// equivalente con 8th Wall por seguridad).
 
 function onSceneLoaded() {
   console.log('[app] scene loaded, state:', _sessionState);
@@ -181,33 +184,58 @@ function onSceneLoaded() {
   }
 }
 
-/* ─── MindAR system event handlers ───────────────────────────────────── */
-// These supplement onSceneLoaded but are not load-bearing for the loading screen.
+/* ─── 8th Wall lifecycle handlers (v2.0) ──────────────────────────────── */
+// Reemplazan a los handlers de MindAR (arReady/arError) del v1.x.
+//
+// Eventos relevantes de 8th Wall:
+//   xrloaded     (window) : engine cargó. Punto de partida para configurar XrController.
+//   realityready (scene)  : SLAM/cámara/tracking listos. Equivalente de "AWAITING_MARKER".
+//   xrerror      (scene)  : error del runtime de 8th Wall.
 
-function onArReady() {
-  console.log('[app] arReady fired');
+function onXrLoaded() {
+  console.log('[app] xrloaded fired — configuring image targets');
+
+  if (!window.XR8 || !XR8.XrController) {
+    console.error('[app] XR8 not available even after xrloaded');
+    _errorReason = 'asset-error';
+    setSessionState(SessionState.ERROR);
+    return;
+  }
+
+  // Cargar el JSON del image target compilado y configurar XrController.
+  // El JSON lo genera `npx @8thwall/image-target-cli@latest` (ver assets/targets/README.md).
+  fetch('./image-targets/marker.json')
+    .then(r => {
+      if (!r.ok) throw new Error('marker.json HTTP ' + r.status);
+      return r.json();
+    })
+    .then(data => {
+      XR8.XrController.configure({ imageTargetData: [data] });
+      console.log('[app] image target configured:', data.name);
+    })
+    .catch(e => {
+      console.error('[app] failed to load marker target:', e);
+      _errorReason = 'asset-error';
+      setSessionState(SessionState.ERROR);
+    });
+}
+
+function onRealityReady() {
+  console.log('[app] realityready fired');
   if (_sessionState === SessionState.INITIALIZING) {
     setSessionState(SessionState.AWAITING_MARKER);
   }
 }
 
-function onArError(e) {
+function onXrError(e) {
   const detail = e.detail || {};
-  const msg = (detail.message || detail.error || String(detail)).toLowerCase();
-  console.error('[app] arError fired:', msg);
+  const msg = String(detail.message || detail.error || detail.errorMessage || detail).toLowerCase();
+  console.error('[app] xrerror fired:', msg);
 
-  if (
-    msg.includes('notallowed') ||
-    msg.includes('permission') ||
-    msg.includes('denied')
-  ) {
+  if (msg.includes('camera') || msg.includes('permission') || msg.includes('notallowed')) {
     _errorReason = 'permission-denied';
-  } else if (
-    msg.includes('notfound') ||
-    msg.includes('device') ||
-    !navigator.mediaDevices ||
-    !navigator.mediaDevices.getUserMedia
-  ) {
+  } else if (msg.includes('notfound') || msg.includes('device') ||
+             !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     _errorReason = 'browser-incompatible';
   } else {
     _errorReason = 'asset-error';
@@ -246,6 +274,8 @@ function applyPerfGating(scene) {
 }
 
 /* ─── Bootstrap ───────────────────────────────────────────────────────── */
+// Nota v2.0: el setupIMU del v1.2 ya no aplica — 8th Wall tiene SLAM/sensor fusion
+// internamente, mucho mejor que nuestro complementary filter rudimentario.
 
 document.addEventListener('DOMContentLoaded', () => {
   // Pre-flight: verify browser supports getUserMedia (FR-022, SC-008).
@@ -276,10 +306,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }, { once: true });
   }
 
-  // MindAR system events — supplementary; onArReady also transitions state
-  // in case it fires before or instead of 'loaded'.
-  scene.addEventListener('arReady', onArReady);
-  scene.addEventListener('arError', onArError);
+  // 8th Wall lifecycle events (v2.0):
+  //   xrloaded fires on `window` cuando el engine binary se inicializa.
+  //   Si el engine ya cargó antes de DOMContentLoaded (raro pero posible), ejecutar inmediato.
+  if (window.XR8) {
+    onXrLoaded();
+  } else {
+    window.addEventListener('xrloaded', onXrLoaded);
+  }
+  scene.addEventListener('realityready', onRealityReady);
+  scene.addEventListener('xrerror', onXrError);
 
   // tracking-fade derived events
   const fadeWrap = document.getElementById('fade-wrap');

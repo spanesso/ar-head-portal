@@ -14,14 +14,15 @@
  *   world-revealed  — first time opacity reaches 1
  *   world-hidden    — every time opacity reaches 0 after a fade-out
  *
- * Subscribes to:
- *   targetFound / targetLost on the closest mindar-image-target ancestor
+ * Subscribes to (v2.0 — 8th Wall):
+ *   xrimagefound / xrimagelost on the closest xrextras-named-image-target ancestor.
+ *   (Antes en v1.x escuchaba targetFound/targetLost en el ancestor mindar-image-target.
+ *    Reemplazo total por la migración a 8th Wall.)
  *
  * research.md R7; contracts/runtime-events-contract.md §§ 1, 2, 3.
  *
- * IMPORTANT: This is the SOLE subscriber to targetFound / targetLost.
+ * IMPORTANT: This is the SOLE subscriber to xrimagefound / xrimagelost.
  * No other component or app.js code may subscribe to these events directly.
- * (contracts/runtime-events-contract.md § 3 — Single-Source-of-Truth Invariant)
  */
 
 /* ─── TrackingState enum ─────────────────────────────────────────── */
@@ -80,10 +81,10 @@ AFRAME.registerComponent('tracking-fade', {
   /* ── Tracking event binding ───────────────────────────────────── */
 
   _bindTrackingEvents() {
-    // Walk ancestors to find the mindar-image-target entity
+    // Walk ancestors to find the xrextras-named-image-target entity (8th Wall, v2.0)
     let ancestor = this.el.parentEl;
     while (ancestor) {
-      if (ancestor.hasAttribute('mindar-image-target')) {
+      if (ancestor.hasAttribute('xrextras-named-image-target')) {
         this._targetEntity = ancestor;
         break;
       }
@@ -91,15 +92,16 @@ AFRAME.registerComponent('tracking-fade', {
     }
 
     if (!this._targetEntity) {
-      console.warn('[tracking-fade] No mindar-image-target ancestor found.');
+      console.warn('[tracking-fade] No xrextras-named-image-target ancestor found.');
       return;
     }
 
     this._onTargetFound = this._handleTargetFound.bind(this);
     this._onTargetLost  = this._handleTargetLost.bind(this);
 
-    this._targetEntity.addEventListener('targetFound', this._onTargetFound);
-    this._targetEntity.addEventListener('targetLost',  this._onTargetLost);
+    // 8th Wall events (en v1.x eran targetFound/targetLost de MindAR)
+    this._targetEntity.addEventListener('xrimagefound', this._onTargetFound);
+    this._targetEntity.addEventListener('xrimagelost',  this._onTargetLost);
   },
 
   /* ── targetFound handler ─────────────────────────────────────── */
